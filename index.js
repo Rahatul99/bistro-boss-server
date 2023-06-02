@@ -61,8 +61,19 @@ async function run() {
       res.send({ token })
     })
 
+    //warning: use verifyJWT before using verify admin 
+    const verifyAdmin = async(req, res, next) =>{
+      const email = req.decoded.email;
+      const query = {email: email}
+      const user = await usersCollection.findOne(query);
+      if(user?.role !== 'admin'){
+        return res.status(403).send({error: true, message: 'forbidden message'})
+      }
+      next();
+    }
+
     //user related apis
-    app.get('/users', async (req, res) => {
+    app.get('/users',verifyJWT, verifyAdmin ,async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     })
@@ -81,6 +92,36 @@ async function run() {
       res.send(result);
     })
 
+    //check is user admin or not
+    // app.get('/users/admin/:email',async(req, res) => {
+    //   const email = req.params.email;
+    //   const query = {email: email}
+    //   const user = await usersCollection.findOne(query);
+    //   const result = { admin: user?.role === 'admin' }
+    //   res.send(result);
+    // })
+
+    //above simply check is secondary email is admin or not(but we dint check first email is valid admin or not)
+    //security layer: verifyJWT
+    //email same
+    //check admin
+    app.get('/users/admin/:email',verifyJWT ,async(req, res) => {
+      const email = req.params.email;
+
+
+      if(req.decoded.email !== email){
+        res.send({ admin: false })
+      }
+
+      const query = {email: email}
+      const user = await usersCollection.findOne(query);
+      const result = { admin: user?.role === 'admin' }
+      res.send(result);
+    })
+
+
+
+
     app.patch('/users/admin/:id', async(req, res) => {
       const id = req.params.id;
       const filter = {_id: new ObjectId(id)};
@@ -96,6 +137,19 @@ async function run() {
     //menu related apis
     app.get('/menu', async(req, res) => {
       const result = await menuCollection.find().toArray();
+      res.send(result);
+    })
+
+    app.post('/menu', verifyJWT, verifyAdmin, async(req, res) => {
+      const newItem = req.body;
+      const result = await menuCollection.insertOne(newItem);
+      res.send(result);
+    })
+
+    app.delete('/menu/:id',verifyJWT, verifyAdmin ,async(req, res) => {
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)}
+      const result = await menuCollection.deleteOne(query);
       res.send(result);
     })
 
