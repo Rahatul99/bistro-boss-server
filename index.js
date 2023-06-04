@@ -3,6 +3,7 @@ const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config()
+const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
 
@@ -12,8 +13,8 @@ app.use(express.json());
 
 const verifyJWT = (req, res, next) => {
   const authorization = req.headers.authorization;
-  if(!authorization){
-    return res.status(401).send({error: true, message: 'unauthorized access'});
+  if (!authorization) {
+    return res.status(401).send({ error: true, message: 'unauthorized access' });
   }
 
   //bearer token(authorization have this token, there are also some text with so that we split it(cause=> bearer: 0, token:...))
@@ -21,8 +22,8 @@ const verifyJWT = (req, res, next) => {
 
 
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-    if(err){
-      return res.status(401).send({error: true, message: 'unauthorized access'})
+    if (err) {
+      return res.status(401).send({ error: true, message: 'unauthorized access' })
     }
     req.decoded = decoded;
     next();
@@ -50,8 +51,8 @@ async function run() {
     const menuCollection = client.db('bistroDB').collection('menu');
     const reviewCollection = client.db('bistroDB').collection('reviews');
     const cartCollection = client.db('bistroDB').collection('carts');
-
     const usersCollection = client.db('bistroDB').collection('users');
+    const paymentsCollection = client.db('bistroDB').collection('payments');
 
 
     app.post('/jwt', (req, res) => {
@@ -62,18 +63,18 @@ async function run() {
     })
 
     //warning: use verifyJWT before using verify admin 
-    const verifyAdmin = async(req, res, next) =>{
+    const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
-      const query = {email: email}
+      const query = { email: email }
       const user = await usersCollection.findOne(query);
-      if(user?.role !== 'admin'){
-        return res.status(403).send({error: true, message: 'forbidden message'})
+      if (user?.role !== 'admin') {
+        return res.status(403).send({ error: true, message: 'forbidden message' })
       }
       next();
     }
 
     //user related apis
-    app.get('/users',verifyJWT, verifyAdmin ,async (req, res) => {
+    app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     })
@@ -81,12 +82,12 @@ async function run() {
 
 
 
-    app.post('/users', async(req, res) => {
+    app.post('/users', async (req, res) => {
       const user = req.body;
-      const query = {email: user.email}
-      const existingUser = await  usersCollection.findOne(query);
-      if(existingUser){
-        return res.send({message: 'user already exists'})
+      const query = { email: user.email }
+      const existingUser = await usersCollection.findOne(query);
+      if (existingUser) {
+        return res.send({ message: 'user already exists' })
       }
       const result = await usersCollection.insertOne(user);
       res.send(result);
@@ -105,15 +106,15 @@ async function run() {
     //security layer: verifyJWT
     //email same
     //check admin
-    app.get('/users/admin/:email',verifyJWT ,async(req, res) => {
+    app.get('/users/admin/:email', verifyJWT, async (req, res) => {
       const email = req.params.email;
 
 
-      if(req.decoded.email !== email){
+      if (req.decoded.email !== email) {
         res.send({ admin: false })
       }
 
-      const query = {email: email}
+      const query = { email: email }
       const user = await usersCollection.findOne(query);
       const result = { admin: user?.role === 'admin' }
       res.send(result);
@@ -122,9 +123,9 @@ async function run() {
 
 
 
-    app.patch('/users/admin/:id', async(req, res) => {
+    app.patch('/users/admin/:id', async (req, res) => {
       const id = req.params.id;
-      const filter = {_id: new ObjectId(id)};
+      const filter = { _id: new ObjectId(id) };
       const updateDoc = {
         $set: {
           role: 'admin'
@@ -133,42 +134,42 @@ async function run() {
       const result = await usersCollection.updateOne(filter, updateDoc);
       res.send(result);
     })
-    
+
     //menu related apis
-    app.get('/menu', async(req, res) => {
+    app.get('/menu', async (req, res) => {
       const result = await menuCollection.find().toArray();
       res.send(result);
     })
 
-    app.post('/menu', verifyJWT, verifyAdmin, async(req, res) => {
+    app.post('/menu', verifyJWT, verifyAdmin, async (req, res) => {
       const newItem = req.body;
       const result = await menuCollection.insertOne(newItem);
       res.send(result);
     })
 
-    app.delete('/menu/:id',verifyJWT, verifyAdmin ,async(req, res) => {
+    app.delete('/menu/:id', verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)}
+      const query = { _id: new ObjectId(id) }
       const result = await menuCollection.deleteOne(query);
       res.send(result);
     })
 
     //review related apis
-    app.get('/reviews', async(req, res) => {
+    app.get('/reviews', async (req, res) => {
       const result = await reviewCollection.find().toArray();
       res.send(result);
     })
 
     //cart collection apis
-    app.get('/carts', verifyJWT, async(req, res) => {
+    app.get('/carts', verifyJWT, async (req, res) => {
       const email = req.query.email;
-      if(!email){
+      if (!email) {
         res.send([]);
       }
 
       const decodedEmail = req.decoded.email;
-      if(email !== decodedEmail){
-        return res.status(403).send({error: true, message: 'forbidden access'})
+      if (email !== decodedEmail) {
+        return res.status(403).send({ error: true, message: 'forbidden access' })
       }
 
       const query = { email: email };
@@ -178,19 +179,80 @@ async function run() {
 
 
 
-    app.post('/carts', async(req, res) => {
+    app.post('/carts', async (req, res) => {
       const item = req.body;
       console.log(item);
       const result = await cartCollection.insertOne(item);
       res.send(result);
     })
 
-    app.delete('/carts/:id', async(req, res) => {
+    app.delete('/carts/:id', async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id) };
+      const query = { _id: new ObjectId(id) };
       const result = await cartCollection.deleteOne(query)
       res.send(result);
     })
+
+
+    //create payment intent
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100); //extra1
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'usd',
+        payment_method_types: ['card']
+      });
+      res.send({
+        clientSecret: paymentIntent.client_secret
+      })
+    })
+
+
+    //payment related api
+    app.post('/payments', verifyJWT, async (req, res) => {
+      const payment = req.body;
+      const insertResult = await paymentsCollection.insertOne(payment);
+
+      const query = { _id: { $in: payment.cartItems.map(id => new ObjectId(id)) } }
+      const deleteResult = await cartCollection.deleteMany(query)
+
+      // res.send(insertResult, deleteResult);
+      res.status(200).send({ insertResult, deleteResult });
+    })
+
+
+    app.get('/admin-stats', verifyJWT, verifyAdmin, async (req, res) => {
+      const users = await usersCollection.estimatedDocumentCount();
+      const products = await menuCollection.estimatedDocumentCount();
+      const orders = await paymentsCollection.estimatedDocumentCount();
+
+      // best way to get sum of the price field is to use group and sum operator
+        // const revenue = await paymentsCollection.aggregate([
+        //   {
+        //     $group: {
+        //       _id: null,
+        //       total: { $sum: '$price' }
+        //     }
+        //   }
+        // ]).toArray()
+
+
+      //or  
+      const payment = await paymentsCollection.find().toArray();
+      // const revenue = payment.reduce((sum, payment) => (sum + payment.price).toFixed(2) ,0)
+      const revenue = payment.reduce((sum, payment) => (parseFloat(sum) + parseFloat(payment.price)).toFixed(2), 0);
+
+
+      res.send({
+        users,
+        products,
+        orders,
+        revenue
+      })
+    })
+
 
 
     // Send a ping to confirm a successful connection
@@ -207,11 +269,11 @@ run().catch(console.dir);
 
 
 app.get('/', (req, res) => {
-    res.send('boos is sitting')
+  res.send('boos is sitting')
 })
 
 app.listen(port, () => {
-    console.log(`Bostro boss is sitting on port ${port}`);
+  console.log(`Bostro boss is sitting on port ${port}`);
 })
 
 
